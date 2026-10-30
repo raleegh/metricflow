@@ -16,7 +16,7 @@ Protocol v1:
 
 manifest_path may be a YAML directory (dev/testing) or a manifest.json file (production).
 sql_engine must be a SqlEngine enum name: DUCKDB, BIGQUERY, DATABRICKS, POSTGRES, REDSHIFT,
-SNOWFLAKE, or TRINO.
+SNOWFLAKE, TRINO, or CLICKHOUSE.
 """
 from __future__ import annotations
 
@@ -31,12 +31,10 @@ import types
 from pathlib import Path
 from typing import IO, Literal
 
+from metricflow_semantics.model.dbt_manifest_parser import parse_manifest_from_dbt_generated_manifest
 from metricflow_semantics.model.semantic_manifest_lookup import SemanticManifestLookup
 from metricflow_semantics.sql.sql_bind_parameters import SqlBindParameterSet
-from metricflow_semantics.test_helpers.manifest_helpers import (
-    mf_load_manifest_from_json_file,
-    mf_load_manifest_from_yaml_directory,
-)
+from metricflow_semantics.test_helpers.manifest_helpers import mf_load_manifest_from_yaml_directory
 from mf_ipc_protocol import (
     ErrorDetail,
     ErrorResponse,
@@ -55,6 +53,7 @@ from metricflow.data_table.mf_table import MetricFlowDataTable
 from metricflow.engine.metricflow_engine import MetricFlowEngine, MetricFlowQueryRequest
 from metricflow.protocols.sql_client import SqlEngine
 from metricflow.sql.render.big_query import BigQuerySqlPlanRenderer
+from metricflow.sql.render.clickhouse import ClickHouseSqlPlanRenderer
 from metricflow.sql.render.databricks import DatabricksSqlPlanRenderer
 from metricflow.sql.render.duckdb_renderer import DuckDbSqlPlanRenderer
 from metricflow.sql.render.postgres import PostgresSQLSqlPlanRenderer
@@ -128,6 +127,8 @@ def _renderer_for(engine: SqlEngine) -> SqlPlanRenderer:
             return SnowflakeSqlPlanRenderer()
         case SqlEngine.TRINO:
             return TrinoSqlPlanRenderer()
+        case SqlEngine.CLICKHOUSE:
+            return ClickHouseSqlPlanRenderer()
         case _:
             raise ValueError(f"No renderer for engine: {engine!r}")
 
@@ -136,7 +137,9 @@ def _load_manifest(path: str) -> PydanticSemanticManifest:
     p = Path(path)
     if p.is_dir():
         return mf_load_manifest_from_yaml_directory(p, {"source_schema": "production"})
-    return mf_load_manifest_from_json_file(p)
+    # A manifest.json comes from dbt, which leaves measure-based metrics untransformed;
+    # parse it the same way the mf CLI does.
+    return parse_manifest_from_dbt_generated_manifest(p.read_text())
 
 
 def _get_engine(manifest_path: str, sql_engine: SqlEngine) -> MetricFlowEngine:

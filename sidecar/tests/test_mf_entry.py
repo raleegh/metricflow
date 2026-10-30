@@ -79,6 +79,20 @@ def test_explain_returns_sql(sidecar: subprocess.Popen) -> None:  # type: ignore
     assert "bookings" in resp["sql"].lower()
 
 
+def test_explain_clickhouse(sidecar: subprocess.Popen) -> None:  # type: ignore[type-arg]
+    """Explain renders ClickHouse SQL, which carries join_use_nulls so outer joins yield NULL."""
+    params = ExplainParams(
+        manifest_path=str(_MANIFEST_DIR),
+        metric_names=["bookings"],
+        group_by_names=["metric_time"],
+        sql_engine="CLICKHOUSE",
+    )
+    resp = _send(sidecar, RequestEnvelope(id="explain-ch", method=Method.EXPLAIN.value, params=params.model_dump()))
+    assert resp["id"] == "explain-ch"
+    assert resp["ok"] is True, resp
+    assert resp["sql"].rstrip().endswith("SETTINGS join_use_nulls = 1")
+
+
 def test_explain_invalid_metric_returns_structured_error(sidecar: subprocess.Popen) -> None:  # type: ignore[type-arg]
     """Explain with an unknown metric name returns ok:false with InvalidQueryException."""
     params = ExplainParams(manifest_path=str(_MANIFEST_DIR), metric_names=["nonexistent_metric"], sql_engine="DUCKDB")
